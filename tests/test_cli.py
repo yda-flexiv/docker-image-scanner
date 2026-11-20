@@ -56,12 +56,12 @@ class ScannerTest(unittest.TestCase):
     def pipeline(self, repo, tag):
         (repo / "bitbucket-pipelines.yml").write_text(f"image:\n  name: {IMAGE}:{tag}\n")
 
-    def cli(self, *args, replay=False):
+    def cli(self, *args, replay=False, as_of="2026-11-20T00:00:00Z"):
         command = [sys.executable, "-m", "docker_image_scanner.cli", "--state-dir", str(self.state),
                    "replay" if replay else "scan", "--json"]
         command.extend(args)
         if not replay:
-            command.extend(["--as-of", "2026-11-20T00:00:00Z", "--docker-remote", str(self.docker)])
+            command.extend(["--as-of", as_of, "--docker-remote", str(self.docker)])
             for name, repo in self.projects.items():
                 command.extend(["--repo", f"{name}={repo.as_uri()}"])
         return subprocess.run(command, cwd=self.documents, text=True, capture_output=True,
@@ -109,6 +109,20 @@ class ScannerTest(unittest.TestCase):
             capture_output=True, env=dict(os.environ, GIT_NO_LAZY_FETCH="1"),
         )
         self.assertNotEqual(0, check.returncode, "blobless scan fetched unrelated source contents")
+
+    def test_recent_merge_tip_needs_only_commit_metadata_in_blobless_cache(self):
+        repo = self.projects[PROJECTS[0]]
+        release = self.git(repo, "rev-parse", "refs/heads/release/v4.2")
+        trunk = self.git(repo, "rev-parse", "refs/heads/develop")
+        tree = self.git(repo, "rev-parse", release + "^{tree}")
+        merge = self.git(repo, "commit-tree", tree, "-p", trunk, "-p", release, "-m", "Merge")
+        self.git(repo, "update-ref", "refs/heads/task/merge-tip", merge)
+        result = self.cli(as_of="2026-10-02T00:00:00Z")
+        self.assertEqual(0, result.returncode, result.stderr + result.stdout)
+        self.assertTrue(any(
+            evidence["commit"] == merge and evidence["reasons"] == ["recent-feature-tip"]
+            for image in json.loads(result.stdout)["required_images"] for evidence in image["evidence"]
+        ))
 
     def test_missing_repo_reports_partial_results(self):
         self.projects[PROJECTS[1]] = self.root / "missing"

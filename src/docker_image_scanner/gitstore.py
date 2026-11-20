@@ -105,13 +105,22 @@ class BareRepo:
         return [
             (commit.decode(), int(timestamp))
             for commit, timestamp in map(bytes.split, self.git(
-                "log", "--first-parent", "--format=%H %ct", sha, "--",
+                "log", "--first-parent", "--no-show-signature", "--no-notes", "--format=%H %ct", sha, "--",
             ).splitlines())
         ]
 
     def tip_time(self, sha: str) -> int:
         self._check_sha(sha)
-        return int(self.git("show", "-s", "--format=%ct", sha, "--"))
+        # Read only the commit. In a blobless cache, git show may consult omitted
+        # objects (notably when inspecting merges) even with patch output disabled.
+        header = self.git("cat-file", "commit", sha).split(b"\n\n", 1)[0]
+        for line in header.splitlines():
+            if line.startswith(b"committer "):
+                try:
+                    return int(line.rsplit(b" ", 2)[-2])
+                except (IndexError, ValueError):
+                    break
+        raise GitError("invalid committer timestamp in Git commit")
 
     def entry(self, sha: str, path: str) -> tuple[str, str] | None:
         self._check_sha(sha)
