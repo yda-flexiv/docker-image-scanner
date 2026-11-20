@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "docker-image-scanner"
+version = "0.1.0"
+description = "Read-only retention audit for Flexiv build images"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = ["PyYAML>=6,<7"]
+
+[project.scripts]
+docker-image-scanner = "docker_image_scanner.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
